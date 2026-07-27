@@ -25,7 +25,7 @@ import argparse
 import json
 from pathlib import Path
 
-from srt_voiceover import (
+from .srt_voiceover import (
     COMFY_URL, MAX_SPEEDUP, resolve_nodes, process_srt_file,
 )
 

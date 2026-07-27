@@ -53,25 +53,25 @@ For Qwen3-TTS workflows, the text field is commonly named `target_text`.
 Run this before a long batch:
 
 ```bash
-python check_setup.py --workflow workflow_api.json --srt "path/to/input.srt"
+python -m src.check_setup --workflow workflow_api.json --srt "path/to/input.srt"
 ```
 
 If auto-detection fails, pass the node details manually:
 
 ```bash
-python check_setup.py --workflow workflow_api.json --srt "path/to/input.srt" --text-node 39 --text-key target_text --audio-node 8
+python -m src.check_setup --workflow workflow_api.json --srt "path/to/input.srt" --text-node 39 --text-key target_text --audio-node 8
 ```
 
 ## Generate One Voiceover
 
 ```bash
-python srt_voiceover.py --srt "path/to/input.srt" --workflow workflow_api.json --out "path/to/output.wav"
+python -m src.srt_voiceover --srt "path/to/input.srt" --workflow workflow_api.json --out "path/to/output.wav"
 ```
 
 With manual node settings:
 
 ```bash
-python srt_voiceover.py --srt "path/to/input.srt" --workflow workflow_api.json --out "path/to/output.wav" --text-node 39 --text-key target_text --audio-node 8
+python -m src.srt_voiceover --srt "path/to/input.srt" --workflow workflow_api.json --out "path/to/output.wav" --text-node 39 --text-key target_text --audio-node 8
 ```
 
 ## Generate Voiceovers In Batch
@@ -80,13 +80,13 @@ This scans a folder recursively for `.srt` files and writes matching `.wav`
 outputs under `voiceovers/`.
 
 ```bash
-python batch_process.py --source-dir "path/to/videos" --workflow workflow_api.json
+python -m src.batch_process --source-dir "path/to/videos" --workflow workflow_api.json
 ```
 
 Optional output folder:
 
 ```bash
-python batch_process.py --source-dir "path/to/videos" --workflow workflow_api.json --out-dir "path/to/voiceovers"
+python -m src.batch_process --source-dir "path/to/videos" --workflow workflow_api.json --out-dir "path/to/voiceovers"
 ```
 
 ## Merge Voiceovers With Videos
@@ -94,13 +94,13 @@ python batch_process.py --source-dir "path/to/videos" --workflow workflow_api.js
 This pairs `.wav` files with `.mp4` files by matching filename stem.
 
 ```bash
-python batch_merge.py --source-dir "path/to/videos"
+python -m src.batch_merge --source-dir "path/to/videos"
 ```
 
 Optional folders:
 
 ```bash
-python batch_merge.py --source-dir "path/to/videos" --voiceovers-dir "path/to/voiceovers" --out-dir "path/to/output-videos"
+python -m src.batch_merge --source-dir "path/to/videos" --voiceovers-dir "path/to/voiceovers" --out-dir "path/to/output-videos"
 ```
 
 ## Check Long Subtitle Lines
@@ -109,19 +109,19 @@ Long subtitle lines can be harder for TTS models to keep consistent. This helper
 shows the longest lines in an SRT:
 
 ```bash
-python check_line_lengths.py --srt "path/to/input.srt"
+python -m src.check_line_lengths --srt "path/to/input.srt"
 ```
 
 Use a custom threshold:
 
 ```bash
-python check_line_lengths.py --srt "path/to/input.srt" --threshold 150
+python -m src.check_line_lengths --srt "path/to/input.srt" --threshold 150
 ```
 
 ## Files
 
-- `srt_voiceover.py` - process one SRT into one synced WAV
-- `batch_process.py` - process every SRT under a source folder
-- `batch_merge.py` - merge generated WAV files into matching MP4 files
-- `check_setup.py` - verify dependencies, ComfyUI, workflow, and SRT parsing
-- `check_line_lengths.py` - report long subtitle lines
+- `src/srt_voiceover.py` - process one SRT into one synced WAV
+- `src/batch_process.py` - process every SRT under a source folder
+- `src/batch_merge.py` - merge generated WAV files into matching MP4 files
+- `src/check_setup.py` - verify dependencies, ComfyUI, workflow, and SRT parsing
+- `src/check_line_lengths.py` - report long subtitle lines

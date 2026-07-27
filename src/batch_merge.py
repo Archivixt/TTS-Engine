@@ -66,9 +66,10 @@ def merge(mp4_path: Path, wav_path: Path, out_path: Path):
         "-shortest",
         str(out_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    result = subprocess.run(cmd, capture_output=True)
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{result.stderr[-1000:]}")
+        stderr = result.stderr.decode("utf-8", errors="replace")[-1000:]
+        raise RuntimeError(f"ffmpeg failed:\n{stderr}")
 
 
 def main():

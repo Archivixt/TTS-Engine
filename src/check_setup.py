@@ -55,8 +55,9 @@ def check_ffmpeg():
              "         - Linux:   sudo apt install ffmpeg")
         return
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=10)
-        version_line = result.stdout.splitlines()[0] if result.stdout else "unknown version"
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=10)
+        stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
+        version_line = stdout.splitlines()[0] if stdout else "unknown version"
         ok(f"ffmpeg found ({version_line})")
     except Exception as e:
         fail(f"ffmpeg found at {path} but failed to run: {e}")

@@ -30,6 +30,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from pydub import AudioSegment
+
 # ======================= CONFIG (defaults, can be overridden by CLI flags) =======================
 
 COMFY_URL = "http://127.0.0.1:8188"          # ComfyUI server address
@@ -147,8 +149,6 @@ def fit_to_slot(clip: AudioSegment, slot_ms: int, max_speedup: float, warn_label
 
 def speed_change(clip: AudioSegment, factor: float) -> AudioSegment:
     """Speed up audio without pitch dropping into chipmunk territory as fast, via ffmpeg atempo."""
-    from pydub import AudioSegment
-
     with tempfile.TemporaryDirectory(prefix="srt_voiceover_") as tmp_dir:
         tmp_in = Path(tmp_dir) / "input.wav"
         tmp_out = Path(tmp_dir) / "output.wav"
@@ -203,8 +203,6 @@ def process_srt_file(comfy_url, workflow, text_node_id, text_input_key, audio_no
     timestamp-synced audio file to out_path. Returns the number of lines processed.
     Reused by both srt_voiceover.py (single file) and batch_process.py (batch mode).
     """
-    from pydub import AudioSegment
-
     subs = load_srt(srt_path)
     if not subs:
         print(f"{log_prefix}[skip] {srt_path} has no subtitle entries")
