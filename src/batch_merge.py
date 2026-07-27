@@ -6,7 +6,7 @@ matching .mp4 in the source folder (matched by filename), and merges them
 into finished dubbed videos using ffmpeg.
 
 Usage:
-    python batch_merge.py --source-dir "path/to/videos" --voiceovers-dir "path/to/videos/voiceovers"
+    python batch_merge.py --source-dir "D:/Videos/Course"
 
 Output goes into a 'dubbed' subfolder inside --source-dir, mirroring the
 source subfolder structure. Original files are never touched.
@@ -16,8 +16,11 @@ if interrupted partway through.
 """
 
 import argparse
+import logging
 import subprocess
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 def find_pairs(source_dir: Path, voiceovers_dir: Path):
@@ -73,6 +76,11 @@ def merge(mp4_path: Path, wav_path: Path, out_path: Path):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
+
     parser = argparse.ArgumentParser(
         description="Batch merge generated voiceover .wav files into matching .mp4 videos."
     )
@@ -94,38 +102,38 @@ def main():
         raise SystemExit(f"Voiceovers folder not found: {voiceovers_dir}\n"
                          f"Run batch_process.py first to generate the audio files.")
 
-    print(f"Scanning for matching pairs...")
+    log.info("Scanning for matching pairs...")
     pairs, missing = find_pairs(source_dir, voiceovers_dir)
 
     if missing:
-        print(f"\n[warn] {len(missing)} .wav file(s) had no matching .mp4 (skipping):")
+        log.warning("\n[warn] %d .wav file(s) had no matching .mp4 (skipping):", len(missing))
         for w in missing:
-            print(f"  - {w.name}")
+            log.warning("  - %s", w.name)
 
     if not pairs:
         raise SystemExit("No matching pairs found. Make sure your .wav filenames match your .mp4 filenames.")
 
-    print(f"\nFound {len(pairs)} matching pair(s). Output folder: {out_dir}\n")
+    log.info("\nFound %d matching pair(s). Output folder: %s\n", len(pairs), out_dir)
 
     done = 0
     for idx, (mp4, wav, rel) in enumerate(pairs, start=1):
         out_path = out_dir / rel.with_suffix(".mp4")
 
         if out_path.exists():
-            print(f"[{idx}/{len(pairs)}] Skipping (already merged): {rel.with_suffix('.mp4')}")
+            log.info("[%d/%d] Skipping (already merged): %s", idx, len(pairs), rel.with_suffix(".mp4"))
             done += 1
             continue
 
-        print(f"[{idx}/{len(pairs)}] Merging: {rel.with_suffix('.mp4')}")
+        log.info("[%d/%d] Merging: %s", idx, len(pairs), rel.with_suffix(".mp4"))
         try:
             merge(mp4, wav, out_path)
             done += 1
         except RuntimeError as e:
-            print(f"  [ERROR] {e}")
-            print(f"  Skipping this file and continuing...")
+            log.error("  [ERROR] %s", e)
+            log.error("  Skipping this file and continuing...")
 
-    print(f"\nDone. {done}/{len(pairs)} videos merged successfully.")
-    print(f"Dubbed videos saved to: {out_dir}")
+    log.info("\nDone. %d/%d videos merged successfully.", done, len(pairs))
+    log.info("Dubbed videos saved to: %s", out_dir)
 
 
 if __name__ == "__main__":

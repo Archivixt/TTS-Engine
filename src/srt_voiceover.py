@@ -24,13 +24,19 @@ per workflow file, not per run.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
-import time
+import logging
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
+import requests
+import srt
 from pydub import AudioSegment
+
+log = logging.getLogger(__name__)
 
 # ======================= CONFIG (defaults, can be overridden by CLI flags) =======================
 
@@ -43,11 +49,32 @@ AUDIO_OUTPUT_NODE_ID = None
 
 MAX_SPEEDUP = 1.15          # cap on how much we'll speed up a clip to fit its slot
 CLIP_TEMP_DIR = "tts_clips" # where per-line renders get cached (safe to delete after)
+TAIL_PADDING_MS = 1000      # extra silence at the end of the master track
+MAX_RETRIES = 3             # network retry attempts for ComfyUI API calls
+RETRY_BACKOFF = 2.0         # seconds between retries (doubles each attempt)
 
 # ===========================================================================
 
 
 TEXT_KEY_NAMES = {"text", "prompt", "input_text", "text_input", "target_text", "string"}
+
+
+def _request_with_retry(method, url, max_retries=MAX_RETRIES, **kwargs):
+    """Make an HTTP request with automatic retries on transient failures."""
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.request(method, url, timeout=30, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_exc = e
+            if attempt < max_retries - 1:
+                wait = RETRY_BACKOFF * (2 ** attempt)
+                log.warning("Request to %s failed (attempt %d/%d), retrying in %.1fs: %s",
+                            url, attempt + 1, max_retries, wait, e)
+                time.sleep(wait)
+    raise last_exc
 
 
 def auto_detect_nodes(workflow):
@@ -67,36 +94,31 @@ def auto_detect_nodes(workflow):
 
 
 def load_srt(path):
-    import srt
-
     with open(path, "r", encoding="utf-8-sig") as f:
         return list(srt.parse(f.read()))
 
 
 def queue_prompt(comfy_url, workflow, text, text_node_id, text_input_key):
     """Send one line of text into the workflow and queue it."""
-    import requests
-
-    wf = json.loads(json.dumps(workflow))  # deep copy
+    wf = copy.deepcopy(workflow)
     wf[text_node_id]["inputs"][text_input_key] = text
-    resp = requests.post(f"{comfy_url}/prompt", json={"prompt": wf})
-    resp.raise_for_status()
+    resp = _request_with_retry("POST", f"{comfy_url}/prompt", json={"prompt": wf})
     return resp.json()["prompt_id"]
 
 
 def wait_for_result(comfy_url, prompt_id, audio_node_id, poll_interval=1.0, timeout=180):
     """Poll ComfyUI's history endpoint until the render finishes, return output info."""
-    import requests
-
     elapsed = 0
     while elapsed < timeout:
-        resp = requests.get(f"{comfy_url}/history/{prompt_id}")
-        resp.raise_for_status()
-        hist = resp.json()
-        if prompt_id in hist:
-            outputs = hist[prompt_id]["outputs"]
-            if audio_node_id in outputs:
-                return outputs[audio_node_id]
+        try:
+            resp = _request_with_retry("GET", f"{comfy_url}/history/{prompt_id}")
+            hist = resp.json()
+            if prompt_id in hist:
+                outputs = hist[prompt_id]["outputs"]
+                if audio_node_id in outputs:
+                    return outputs[audio_node_id]
+        except requests.RequestException as e:
+            log.warning("Poll request failed, will retry: %s", e)
         time.sleep(poll_interval)
         elapsed += poll_interval
     raise TimeoutError(f"Render for prompt {prompt_id} did not finish in {timeout}s")
@@ -104,8 +126,6 @@ def wait_for_result(comfy_url, prompt_id, audio_node_id, poll_interval=1.0, time
 
 def download_audio(comfy_url, output_info, dest_path):
     """ComfyUI audio outputs list files under 'audio' (or 'files' on some custom nodes)."""
-    import requests
-
     if "audio" in output_info:
         key = "audio"
     elif "files" in output_info:
@@ -113,14 +133,17 @@ def download_audio(comfy_url, output_info, dest_path):
     else:
         raise RuntimeError(f"Audio output did not contain downloadable files: {output_info}")
 
-    file_info = output_info[key][0]
+    files = output_info[key]
+    if not files:
+        raise RuntimeError(f"Audio output '{key}' list is empty: {output_info}")
+
+    file_info = files[0]
     params = {
         "filename": file_info["filename"],
         "subfolder": file_info.get("subfolder", ""),
         "type": file_info.get("type", "output"),
     }
-    r = requests.get(f"{comfy_url}/view", params=params)
-    r.raise_for_status()
+    r = _request_with_retry("GET", f"{comfy_url}/view", params=params)
     with open(dest_path, "wb") as f:
         f.write(r.content)
 
@@ -142,8 +165,8 @@ def fit_to_slot(clip: AudioSegment, slot_ms: int, max_speedup: float, warn_label
         return speed_change(clip, needed_factor)
 
     # Can't fit even at max allowed speedup -> speed up as much as we allow and warn
-    print(f"[warn] {warn_label}: line runs {clip_ms - slot_ms}ms over its slot "
-          f"even after {max_speedup}x speedup. Consider shortening the translation.")
+    log.warning("%s: line runs %dms over its slot even after %.2fx speedup. "
+                "Consider shortening the translation.", warn_label, clip_ms - slot_ms, max_speedup)
     return speed_change(clip, max_speedup)
 
 
@@ -154,10 +177,13 @@ def speed_change(clip: AudioSegment, factor: float) -> AudioSegment:
         tmp_out = Path(tmp_dir) / "output.wav"
         clip.export(tmp_in, format="wav")
         # atempo supports 0.5-2.0 per filter instance; fine for our capped range
-        subprocess.run(
+        result = subprocess.run(
             ["ffmpeg", "-y", "-i", str(tmp_in), "-filter:a", f"atempo={factor}", str(tmp_out)],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            capture_output=True,
         )
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")[-500:]
+            raise RuntimeError(f"ffmpeg atempo failed (exit {result.returncode}):\n{stderr}")
         return AudioSegment.from_wav(tmp_out)
 
 
@@ -174,11 +200,11 @@ def resolve_nodes(workflow, args):
     if not text_node_id or not text_input_key:
         if len(text_candidates) == 1:
             text_node_id, text_input_key, _ = text_candidates[0]
-            print(f"[auto-detect] Using text node {text_node_id!r} (field {text_input_key!r})")
+            log.info("Auto-detected text node %r (field %r)", text_node_id, text_input_key)
         else:
-            print("Could not confidently auto-detect the text-input node. Candidates found:")
+            log.error("Could not confidently auto-detect the text-input node. Candidates found:")
             for nid, key, ctype in text_candidates:
-                print(f"  node {nid}  field={key!r}  class_type={ctype!r}")
+                log.error("  node %s  field=%r  class_type=%r", nid, key, ctype)
             raise SystemExit(
                 "Re-run with --text-node <id> --text-key <field> to specify which one to use."
             )
@@ -186,11 +212,11 @@ def resolve_nodes(workflow, args):
     if not audio_node_id:
         if len(audio_candidates) == 1:
             audio_node_id = audio_candidates[0]
-            print(f"[auto-detect] Using audio output node {audio_node_id!r}")
+            log.info("Auto-detected audio output node %r", audio_node_id)
         else:
-            print("Could not confidently auto-detect the audio output node. Candidates found:")
+            log.error("Could not confidently auto-detect the audio output node. Candidates found:")
             for nid in audio_candidates:
-                print(f"  node {nid}  class_type={workflow[nid].get('class_type')!r}")
+                log.error("  node %s  class_type=%r", nid, workflow[nid].get("class_type"))
             raise SystemExit("Re-run with --audio-node <id> to specify which one to use.")
 
     return text_node_id, text_input_key, audio_node_id
@@ -205,13 +231,13 @@ def process_srt_file(comfy_url, workflow, text_node_id, text_input_key, audio_no
     """
     subs = load_srt(srt_path)
     if not subs:
-        print(f"{log_prefix}[skip] {srt_path} has no subtitle entries")
+        log.warning("%s[skip] %s has no subtitle entries", log_prefix, srt_path)
         return 0
 
     clip_dir = Path(clip_dir) if clip_dir else Path(CLIP_TEMP_DIR)
     clip_dir.mkdir(parents=True, exist_ok=True)
 
-    total_duration_ms = int(subs[-1].end.total_seconds() * 1000) + 1000
+    total_duration_ms = int(subs[-1].end.total_seconds() * 1000) + TAIL_PADDING_MS
     master = AudioSegment.silent(duration=total_duration_ms)
 
     for i, sub in enumerate(subs):
@@ -225,7 +251,7 @@ def process_srt_file(comfy_url, workflow, text_node_id, text_input_key, audio_no
 
         raw_path = clip_dir / f"line_{sub.index:04d}.wav"
         if not raw_path.exists():  # cache so reruns don't re-render everything
-            print(f"{log_prefix}[{i+1}/{len(subs)}] Rendering: {sub.content[:50]!r}")
+            log.info("%s[%d/%d] Rendering: %.50s", log_prefix, i + 1, len(subs), sub.content)
             render_line(
                 comfy_url, workflow, sub.content, raw_path,
                 text_node_id, text_input_key, audio_node_id,
@@ -238,11 +264,16 @@ def process_srt_file(comfy_url, workflow, text_node_id, text_input_key, audio_no
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     master.export(out_path, format="wav")
-    print(f"{log_prefix}Done -> {out_path}")
+    log.info("%sDone -> %s", log_prefix, out_path)
     return len(subs)
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
+
     parser = argparse.ArgumentParser(description="Generate a synced voiceover from an SRT file via ComfyUI Qwen3-TTS.")
     parser.add_argument("--srt", required=True, help="Path to the translated .srt file")
     parser.add_argument("--workflow", required=True, help="Path to the exported workflow_api.json")

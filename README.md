@@ -27,7 +27,7 @@ The pipeline is resumable:
 - Python 3.10+
 - ffmpeg available on your system `PATH`
 - ComfyUI running locally
-- A working Qwen3-TTS workflow exported from ComfyUI in API format
+- A working Qwen3-TTS workflow exported from ComfyUI in API Format
 
 Install Python dependencies:
 
@@ -53,25 +53,25 @@ For Qwen3-TTS workflows, the text field is commonly named `target_text`.
 Run this before a long batch:
 
 ```bash
-python -m src.check_setup --workflow workflow_api.json --srt "path/to/input.srt"
+python -m src.check_setup --workflow workflow_api.json --srt "./subtitles/Chapter-01.srt"
 ```
 
 If auto-detection fails, pass the node details manually:
 
 ```bash
-python -m src.check_setup --workflow workflow_api.json --srt "path/to/input.srt" --text-node 39 --text-key target_text --audio-node 8
+python -m src.check_setup --workflow workflow_api.json --srt "./subtitles/Chapter-01.srt" --text-node 39 --text-key target_text --audio-node 8
 ```
 
 ## Generate One Voiceover
 
 ```bash
-python -m src.srt_voiceover --srt "path/to/input.srt" --workflow workflow_api.json --out "path/to/output.wav"
+python -m src.srt_voiceover --srt "./subtitles/Chapter-01.srt" --workflow workflow_api.json --out "./voiceovers/Chapter-01.wav"
 ```
 
 With manual node settings:
 
 ```bash
-python -m src.srt_voiceover --srt "path/to/input.srt" --workflow workflow_api.json --out "path/to/output.wav" --text-node 39 --text-key target_text --audio-node 8
+python -m src.srt_voiceover --srt "./subtitles/Chapter-01.srt" --workflow workflow_api.json --out "./voiceovers/Chapter-01.wav" --text-node 39 --text-key target_text --audio-node 8
 ```
 
 ## Generate Voiceovers In Batch
@@ -80,13 +80,13 @@ This scans a folder recursively for `.srt` files and writes matching `.wav`
 outputs under `voiceovers/`.
 
 ```bash
-python -m src.batch_process --source-dir "path/to/videos" --workflow workflow_api.json
+python -m src.batch_process --source-dir "D:/Videos/Course" --workflow workflow_api.json
 ```
 
 Optional output folder:
 
 ```bash
-python -m src.batch_process --source-dir "path/to/videos" --workflow workflow_api.json --out-dir "path/to/voiceovers"
+python -m src.batch_process --source-dir "D:/Videos/Course" --workflow workflow_api.json --out-dir "D:/Videos/Course/voiceovers"
 ```
 
 ## Merge Voiceovers With Videos
@@ -94,13 +94,13 @@ python -m src.batch_process --source-dir "path/to/videos" --workflow workflow_ap
 This pairs `.wav` files with `.mp4` files by matching filename stem.
 
 ```bash
-python -m src.batch_merge --source-dir "path/to/videos"
+python -m src.batch_merge --source-dir "D:/Videos/Course"
 ```
 
 Optional folders:
 
 ```bash
-python -m src.batch_merge --source-dir "path/to/videos" --voiceovers-dir "path/to/voiceovers" --out-dir "path/to/output-videos"
+python -m src.batch_merge --source-dir "D:/Videos/Course" --voiceovers-dir "D:/Videos/Course/voiceovers" --out-dir "D:/Videos/Course/dubbed"
 ```
 
 ## Check Long Subtitle Lines
@@ -109,13 +109,13 @@ Long subtitle lines can be harder for TTS models to keep consistent. This helper
 shows the longest lines in an SRT:
 
 ```bash
-python -m src.check_line_lengths --srt "path/to/input.srt"
+python -m src.check_line_lengths --srt "./subtitles/Chapter-01.srt"
 ```
 
 Use a custom threshold:
 
 ```bash
-python -m src.check_line_lengths --srt "path/to/input.srt" --threshold 150
+python -m src.check_line_lengths --srt "./subtitles/Chapter-01.srt" --threshold 150
 ```
 
 ## Files

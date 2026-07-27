@@ -5,7 +5,7 @@ Finds every .srt file inside a source folder, including nested subfolders,
 and generates one synced voiceover .wav for each -- automatically, in one run.
 
 Usage:
-    python batch_process.py --source-dir "path/to/videos" --workflow workflow_api.json --out-dir "path/to/videos/voiceovers"
+    python batch_process.py --source-dir "D:/Videos/Course" --workflow workflow_api.json
 
 What it does:
 - Recursively scans --source-dir for every *.srt file, wherever it sits.
@@ -23,11 +23,14 @@ so this is efficient even for large batches.
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 from .srt_voiceover import (
     COMFY_URL, MAX_SPEEDUP, resolve_nodes, process_srt_file,
 )
+
+log = logging.getLogger(__name__)
 
 
 def find_srt_files(source_dir: Path):
@@ -35,6 +38,11 @@ def find_srt_files(source_dir: Path):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
+
     parser = argparse.ArgumentParser(
         description="Generate synced voiceovers for every SRT in a source folder."
     )
@@ -60,37 +68,46 @@ def main():
     if not srt_files:
         raise SystemExit(f"No .srt files found under: {source_dir}")
 
-    print(f"Found {len(srt_files)} SRT file(s) under {source_dir}:")
+    log.info("Found %d SRT file(s) under %s:", len(srt_files), source_dir)
     for f in srt_files:
-        print(f"  - {f.relative_to(source_dir)}")
+        log.info("  - %s", f.relative_to(source_dir))
 
     workflow = json.loads(Path(args.workflow).read_text(encoding="utf-8"))
     text_node_id, text_input_key, audio_node_id = resolve_nodes(workflow, args)
 
-    print(f"\nOutput folder: {out_dir}\n")
+    log.info("\nOutput folder: %s\n", out_dir)
 
     total_lines = 0
+    failed = []
     for idx, srt_path in enumerate(srt_files, start=1):
         rel_path = srt_path.relative_to(source_dir)
         out_path = out_dir / rel_path.with_suffix(".wav")
         clip_cache_dir = out_dir / ".clip_cache" / rel_path.with_suffix("")
 
         if out_path.exists():
-            print(f"[{idx}/{len(srt_files)}] Skipping (already done): {rel_path}")
+            log.info("[%d/%d] Skipping (already done): %s", idx, len(srt_files), rel_path)
             continue
 
-        print(f"[{idx}/{len(srt_files)}] Processing: {rel_path}")
-        n = process_srt_file(
-            args.comfy_url, workflow, text_node_id, text_input_key, audio_node_id,
-            srt_path, out_path,
-            max_speedup=args.max_speedup,
-            clip_dir=clip_cache_dir,
-            log_prefix="    ",
-        )
-        total_lines += n
+        log.info("[%d/%d] Processing: %s", idx, len(srt_files), rel_path)
+        try:
+            n = process_srt_file(
+                args.comfy_url, workflow, text_node_id, text_input_key, audio_node_id,
+                srt_path, out_path,
+                max_speedup=args.max_speedup,
+                clip_dir=clip_cache_dir,
+                log_prefix="    ",
+            )
+            total_lines += n
+        except Exception as e:
+            log.error("  [ERROR] %s failed: %s", rel_path, e)
+            failed.append((rel_path, e))
 
-    print(f"\nAll done. Processed {len(srt_files)} file(s), {total_lines} total lines.")
-    print(f"Output voiceovers are in: {out_dir}")
+    log.info("\nAll done. Processed %d file(s), %d total lines.", len(srt_files) - len(failed), total_lines)
+    if failed:
+        log.warning("%d file(s) failed:", len(failed))
+        for path, err in failed:
+            log.warning("  - %s: %s", path, err)
+    log.info("Output voiceovers are in: %s", out_dir)
 
 
 if __name__ == "__main__":
