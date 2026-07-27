@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+
+# Local/private docs and workflow exports
+PROJECT_EXPLANATION.md
+workflow_api.json
+Archived/
+
+# Generated audio/video outputs and render caches
+tts_clips/
+.clip_cache/
+voiceovers/
+dubbed/
+*.wav
+*.flac
+*.mp3
+*.mp4
+
+# Local placeholder/accidental files
+/python
+/ffmpeg
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
